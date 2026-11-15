@@ -1,0 +1,24 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Toy War RTS"
+config/description="Een RTS met speelgoedsoldaatjes (Godot 4)."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+config/icon="res://icon.svg"
+
+[autoload]
+
+GameData="*res://scripts/autoload/game_data.gd"
+Net="*res://scripts/autoload/net.gd"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=2
