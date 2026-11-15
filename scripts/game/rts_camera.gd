@@ -9,7 +9,7 @@ const MIN_ZOOM := 12.0
 const MAX_ZOOM := 90.0
 
 var camera: Camera3D
-var zoom := 34.0
+var zoom := 30.0
 var edge_pan := true
 var _drag := false
 
@@ -18,6 +18,13 @@ func _init() -> void:
 	camera = Camera3D.new()
 	camera.fov = 50.0
 	camera.far = 800.0
+	# Lichte tilt-shift: voor- en achtergrond een beetje wazig, zodat het
+	# eruitziet als een close-up van echt speelgoed.
+	var attr := CameraAttributesPractical.new()
+	attr.dof_blur_far_enabled = true
+	attr.dof_blur_near_enabled = true
+	attr.dof_blur_amount = 0.06
+	camera.attributes = attr
 	add_child(camera)
 	_apply()
 
@@ -31,6 +38,12 @@ func _apply() -> void:
 	var pitch := deg_to_rad(PITCH_DEG)
 	camera.position = Vector3(0, sin(pitch) * zoom, cos(pitch) * zoom)
 	camera.rotation = Vector3(-pitch, 0, 0)
+	var attr := camera.attributes as CameraAttributesPractical
+	if attr:
+		attr.dof_blur_far_distance = zoom * 1.35
+		attr.dof_blur_far_transition = zoom * 1.2
+		attr.dof_blur_near_distance = zoom * 0.45
+		attr.dof_blur_near_transition = zoom * 0.3
 
 
 func _process(delta: float) -> void:

@@ -11,6 +11,7 @@ const Entity := preload("res://scripts/game/entity.gd")
 const RTSCamera := preload("res://scripts/game/rts_camera.gd")
 const PlayerController := preload("res://scripts/game/player_controller.gd")
 const Hud := preload("res://scripts/game/hud.gd")
+const Room := preload("res://scripts/visual/room.gd")
 
 const SNAPSHOT_INTERVAL := 0.1
 const SNAPSHOT_CHUNK := 12
@@ -154,6 +155,7 @@ func _rpc_despawn(id: int) -> void:
 		return
 	e.dead = true
 	entities.erase(id)
+	e.on_removed()
 	e.queue_free()
 	entity_removed.emit(id)
 
@@ -700,55 +702,4 @@ func _order_move(u, p: Vector3) -> void:
 # --- Omgeving: een kinderkamervloer -----------------------------------------
 
 func _build_environment() -> void:
-	var we := WorldEnvironment.new()
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.62, 0.74, 0.86)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.9, 0.88, 0.85)
-	env.ambient_light_energy = 0.4
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	we.environment = env
-	add_child(we)
-
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55, -35, 0)
-	sun.light_energy = 0.85
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 160.0
-	add_child(sun)
-
-	var size := GameData.MAP_HALF * 2.0 + 20.0
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(size, size)
-	_static_mesh(plane, Color(0.66, 0.47, 0.3), Vector3.ZERO)
-	# Planken in de houten vloer
-	for i in range(-22, 23):
-		var line := BoxMesh.new()
-		line.size = Vector3(0.08, 0.01, size)
-		_static_mesh(line, Color(0.5, 0.35, 0.22), Vector3(i * 5.0, 0.005, 0))
-	# Speelkleed in het midden
-	var rugs := [[36.0, Color(0.3, 0.45, 0.75)], [28.0, Color(0.92, 0.78, 0.35)], [26.0, Color(0.3, 0.45, 0.75)]]
-	for i in rugs.size():
-		var c := CylinderMesh.new()
-		c.top_radius = rugs[i][0]
-		c.bottom_radius = rugs[i][0]
-		c.height = 0.04
-		c.radial_segments = 64
-		_static_mesh(c, rugs[i][1], Vector3(0, 0.02 + i * 0.01, 0))
-	# Plinten rond de kamer
-	for s in [-1, 1]:
-		var wall := BoxMesh.new()
-		wall.size = Vector3(size, 3, 1)
-		_static_mesh(wall, Color(0.95, 0.95, 0.92), Vector3(0, 1.5, s * (GameData.MAP_HALF + 1.0)))
-		var wall2 := BoxMesh.new()
-		wall2.size = Vector3(1, 3, size)
-		_static_mesh(wall2, Color(0.95, 0.95, 0.92), Vector3(s * (GameData.MAP_HALF + 1.0), 1.5, 0))
-
-
-func _static_mesh(mesh: Mesh, color: Color, pos: Vector3) -> void:
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = GameData.make_mat(color)
-	mi.position = pos
-	add_child(mi)
+	Room.build(self, GameData.MAP_HALF)

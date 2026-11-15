@@ -40,6 +40,15 @@ func _process(delta: float) -> void:
 		game.controller.set_selection(workers)
 	elif _step == 2 and _t > 14.0:
 		_step = 3
+		if main.args.has("select"):
+			var pick := _mine(main.args["select"])
+			if pick.size() > 0:
+				game.controller.set_selection([pick[0]])
+				await get_tree().create_timer(0.5).timeout
+		if main.args.has("place"):
+			Input.warp_mouse(Vector2(1050, 420))
+			game.controller.start_place(main.args["place"])
+			await get_tree().create_timer(0.5).timeout
 		if main.args.has("screenshot"):
 			var img := get_viewport().get_texture().get_image()
 			img.save_png(main.args["screenshot"])

@@ -155,9 +155,6 @@ const BUILDINGS := {
 	},
 }
 
-var _mat_cache := {}
-
-
 func faction_data(faction: String) -> Dictionary:
 	return FACTIONS.get(faction, FACTIONS["soldiers"])
 
@@ -213,17 +210,7 @@ func display_name(kind: String, type: String) -> String:
 	return type
 
 
-## Gedeelde materialen, zodat niet elk blokje een eigen materiaal krijgt.
-func make_mat(color: Color, unshaded := false) -> StandardMaterial3D:
-	var key := "%s|%s" % [color.to_html(true), unshaded]
-	if _mat_cache.has(key):
-		return _mat_cache[key]
-	var m := StandardMaterial3D.new()
-	m.albedo_color = color
-	m.roughness = 0.45
-	if unshaded:
-		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	if color.a < 1.0:
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_mat_cache[key] = m
-	return m
+## Gedeelde materialen (glimmend plastic, of unshaded voor markeringen).
+func make_mat(color: Color, unshaded := false) -> Material:
+	var Mat = load("res://scripts/visual/toy_mat.gd")
+	return Mat.unshaded(color) if unshaded else Mat.plastic(color)

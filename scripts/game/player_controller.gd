@@ -5,6 +5,8 @@ extends Node
 signal selection_changed
 
 const DRAG_THRESHOLD := 6.0
+const ToyModels := preload("res://scripts/visual/toy_models.gd")
+const ToyMat := preload("res://scripts/visual/toy_mat.gd")
 
 var game: Node3D
 var hud: CanvasLayer
@@ -13,14 +15,15 @@ var place_type := ""
 
 var _dragging := false
 var _drag_start := Vector2.ZERO
-var _ghost: MeshInstance3D
+var _ghost: Node3D
+var _ghost_ok := -1
 var _marker: MeshInstance3D
 var _marker_t := 0.0
 
 
 func _ready() -> void:
 	game.entity_removed.connect(_on_entity_removed)
-	_ghost = MeshInstance3D.new()
+	_ghost = Node3D.new()
 	_ghost.visible = false
 	game.add_child(_ghost)
 	var torus := TorusMesh.new()
@@ -36,9 +39,11 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if place_type != "":
 		var p: Vector3 = game.snap_build_pos(ground_point(get_viewport().get_mouse_position()))
-		_ghost.position = p + Vector3(0, 1.0, 0)
+		_ghost.position = p
 		var ok: bool = game.can_place(place_type, p)
-		_ghost.material_override = GameData.make_mat(Color(0.3, 1, 0.3, 0.45) if ok else Color(1, 0.25, 0.25, 0.45), true)
+		if int(ok) != _ghost_ok:
+			_ghost_ok = int(ok)
+			_tint_ghost(_ghost, ToyMat.ghost(Color(0.45, 1.0, 0.45, 0.5) if ok else Color(1.0, 0.3, 0.25, 0.5)))
 	if _marker.visible:
 		_marker_t += delta
 		var s := maxf(1.0 - _marker_t * 2.0, 0.0)
@@ -248,11 +253,30 @@ func start_place(btype: String) -> void:
 		hud.flash(GameData.missing_text(game.stocks[game.my_slot], cost))
 		return
 	place_type = btype
+	for c in _ghost.get_children():
+		c.queue_free()
+	var model: Node3D = ToyModels.build(btype, GameData.player_color(game.my_slot), 1)["root"]
+	_ghost.add_child(model)
+	# Vierkant op de grond dat laat zien hoeveel ruimte het gebouw nodig heeft.
 	var size: float = GameData.BUILDINGS[btype]["size"]
-	var box := BoxMesh.new()
-	box.size = Vector3(size, 2.0, size)
-	_ghost.mesh = box
+	var foot := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(size + 1.0, size + 1.0)
+	foot.mesh = pm
+	foot.position.y = 0.08
+	_ghost.add_child(foot)
+	_ghost_ok = -1
 	_ghost.visible = true
+
+
+func _tint_ghost(n: Node, mat: Material) -> void:
+	for c in n.get_children():
+		if c is GeometryInstance3D:
+			c.material_override = mat
+			c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if c is Label3D or c is Light3D:
+			c.visible = false
+		_tint_ghost(c, mat)
 
 
 func cancel_place() -> void:

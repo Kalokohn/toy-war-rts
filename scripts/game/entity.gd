@@ -40,14 +40,26 @@ var has_rally := false
 var amount := 0
 
 # Visueel
+const ToyModels := preload("res://scripts/visual/toy_models.gd")
+const Mat := preload("res://scripts/visual/toy_mat.gd")
+const ToyMesh := preload("res://scripts/visual/toy_mesh.gd")
+const Fx := preload("res://scripts/visual/fx.gd")
+const UNIT_VISUAL_SCALE := 1.2
+
 var net_pos := Vector3.ZERO
 var net_rot := 0.0
 var model: Node3D
+var parts := {}
 var ring: MeshInstance3D
-var label: Label3D
 var carry_mesh: MeshInstance3D
+var start_amount := 1
 var _shown_carry := ""
 var _bob := 0.0
+var _anim := 0.0
+var _atk_t := 0.0
+var _last_hp := -1.0
+var _was_complete := true
+var _fx_t := 0.0
 
 
 func setup(p_id: int, p_kind: String, p_type: String, p_owner: int, pos: Vector3, p_progress: float) -> void:
@@ -80,6 +92,7 @@ func setup(p_id: int, p_kind: String, p_type: String, p_owner: int, pos: Vector3
 		"resource":
 			var d: Dictionary = GameData.RESOURCE_NODES[type]
 			amount = d["amount"]
+			start_amount = amount
 			radius = d["radius"]
 			pick_radius = radius * 1.2
 			pick_height = d["height"]
@@ -140,279 +153,160 @@ func _process(delta: float) -> void:
 		var t := clampf(delta * 12.0, 0.0, 1.0)
 		position = position.lerp(net_pos, t)
 		rotation.y = lerp_angle(rotation.y, net_rot, t)
+	_anim += delta
+	# Raakeffect als de HP omlaag gaat.
+	if _last_hp >= 0.0 and hp < _last_hp - 0.5 and kind != "resource":
+		Fx.hit(get_parent(), position + Vector3(0, pick_height * 0.6, 0), GameData.player_color(owner_slot).lightened(0.2))
+		if kind == "unit":
+			model.scale = Vector3(1.12, 0.88, 1.12)
+	_last_hp = hp
+	if model.scale != Vector3.ONE and kind == "unit":
+		model.scale = model.scale.lerp(Vector3.ONE, clampf(delta * 10.0, 0.0, 1.0))
 	match kind:
 		"unit":
-			if flying:
-				_bob += delta * 3.0
-				model.position.y = 4.0 + sin(_bob) * 0.3
-			elif moving:
-				_bob += delta * 14.0
-				model.position.y = absf(sin(_bob)) * 0.12
-			else:
-				model.position.y = lerpf(model.position.y, 0.0, clampf(delta * 10.0, 0.0, 1.0))
-			if carry_mesh:
-				var want := carry_type if carry_amount > 0 else ""
-				if want != _shown_carry:
-					_shown_carry = want
-					carry_mesh.visible = want != ""
-					if want != "":
-						carry_mesh.material_override = GameData.make_mat(GameData.RESOURCE_COLORS[want])
+			_animate_unit(delta)
 		"building":
-			model.scale.y = 1.0 if complete else lerpf(0.15, 1.0, progress)
-			if not complete:
-				label.text = "Bouwen %d%%" % int(progress * 100.0)
-			elif queue.size() > 0:
-				var extra := "" if queue.size() == 1 else " (+%d)" % (queue.size() - 1)
-				label.text = "%s %d%%%s" % [GameData.UNITS[queue[0]]["name"], int(train_ratio * 100.0), extra]
-			else:
-				label.text = ""
+			_animate_building(delta)
+		"resource":
+			var k := 0.55 + 0.45 * clampf(float(amount) / maxf(start_amount, 1.0), 0.0, 1.0)
+			model.scale = model.scale.lerp(Vector3(k, k, k), clampf(delta * 4.0, 0.0, 1.0))
+
+
+func _animate_unit(delta: float) -> void:
+	var ud: Dictionary = GameData.UNITS[type]
+	var base_y := 0.0
+	var tilt := 0.0
+	var wobble := 0.0
+	if flying:
+		_bob += delta * 3.0
+		base_y = 4.0 + sin(_bob) * 0.3
+		tilt = 6.0 if moving else 0.0
+		var flap := sin(_anim * (9.0 if moving else 5.0)) * 28.0
+		var wings: Array = parts.get("wings", [])
+		if wings.size() == 2:
+			wings[0].rotation_degrees.z = flap
+			wings[1].rotation_degrees.z = -flap
+	elif moving:
+		# Speelgoed "huppelt" vooruit, alsof een kind het verplaatst.
+		_bob += delta * 13.0
+		base_y = absf(sin(_bob)) * 0.16
+		wobble = sin(_bob) * 7.0
+	else:
+		_bob = 0.0
+	# Poten zwaaien bij dino's
+	for i in parts.get("legs", []).size():
+		var leg: Node3D = parts["legs"][i]
+		var ph := PI if i % 2 == 1 else 0.0
+		leg.rotation_degrees.x = sin(_bob + ph) * 26.0 if moving else lerpf(leg.rotation_degrees.x, 0.0, 0.2)
+	var tail: Node3D = parts.get("tail")
+	if tail:
+		tail.rotation_degrees.y = sin(_anim * (6.0 if moving else 1.6)) * (14.0 if moving else 8.0)
+	var key: Node3D = parts.get("key")
+	if key:
+		key.rotation.z += delta * (6.0 if moving or state in ["gather", "build"] else 1.5)
+	# Werken: hakken/pikken richting de bron of het gebouw.
+	if not moving and state in ["gather", "build"] and not flying:
+		tilt = maxf(sin(_anim * 9.0), 0.0) * 18.0
+		_fx_t += delta
+		if _fx_t > 0.55:
+			_fx_t = 0.0
+			Fx.dust(get_parent(), position + transform.basis.z * (radius + 0.4) + Vector3(0, 0.4, 0))
+	# Aanvallen: mondingsvuur of een uitval.
+	if state == "attack" and not moving and ud["damage"] > 0:
+		_atk_t += delta
+		var cd: float = ud["cooldown"]
+		var lunge := 0.0
+		if parts.get("muzzle") != null:
+			if _atk_t >= cd:
+				_atk_t = 0.0
+				Fx.muzzle(get_parent(), to_global(parts["muzzle"] * model.scale))
+		else:
+			if _atk_t >= cd:
+				_atk_t = 0.0
+			lunge = sin(clampf(_atk_t / 0.25, 0.0, 1.0) * PI) * 0.35
+			tilt = lunge * 40.0
+		model.position.z = lunge
+	else:
+		_atk_t = 0.0
+		model.position.z = lerpf(model.position.z, 0.0, 0.2)
+	model.position.y = lerpf(model.position.y, base_y, clampf(delta * 14.0, 0.0, 1.0)) if not flying else base_y
+	model.rotation_degrees.x = lerpf(model.rotation_degrees.x, tilt, clampf(delta * 12.0, 0.0, 1.0))
+	model.rotation_degrees.z = lerpf(model.rotation_degrees.z, wobble, clampf(delta * 12.0, 0.0, 1.0))
+	if carry_mesh:
+		var want := carry_type if carry_amount > 0 else ""
+		if want != _shown_carry:
+			_shown_carry = want
+			carry_mesh.visible = want != ""
+			if want != "":
+				carry_mesh.material_override = Mat.plastic(GameData.RESOURCE_COLORS[want])
+
+
+func _animate_building(delta: float) -> void:
+	if complete:
+		if not _was_complete:
+			_was_complete = true
+			model.scale = Vector3(1.08, 1.12, 1.08)
+			Fx.poof(get_parent(), position, Color(1, 0.9, 0.5), false)
+		model.scale = model.scale.lerp(Vector3.ONE, clampf(delta * 6.0, 0.0, 1.0))
+	else:
+		_was_complete = false
+		var k := lerpf(0.12, 1.0, progress)
+		model.scale = Vector3(1.0, k, 1.0)
+		_fx_t += delta
+		if _fx_t > 0.4 and progress > 0.0:
+			_fx_t = 0.0
+			Fx.dust(get_parent(), position + Vector3(randf_range(-half, half), half * k, randf_range(-half, half)))
+	for f in parts.get("flags", []):
+		f.rotation_degrees.y = sin(_anim * 2.5 + id) * 14.0
+
+
+## Wordt aangeroepen vlak voordat de entity verdwijnt.
+func on_removed() -> void:
+	var parent := get_parent()
+	match kind:
+		"unit":
+			Fx.poof(parent, position + Vector3(0, 4.0 if flying else 0.0, 0), GameData.player_color(owner_slot), false)
+		"building":
+			Fx.poof(parent, position, GameData.player_color(owner_slot), true)
+		"resource":
+			Fx.poof(parent, position, GameData.RESOURCE_COLORS.get(type, Color.WHITE), false)
 
 
 func set_selected(on: bool, color: Color) -> void:
 	ring.visible = on
 	if on:
-		ring.material_override = GameData.make_mat(color, true)
+		ring.material_override = Mat.ring(color)
 
 
 func _build_visual() -> void:
-	model = Node3D.new()
+	parts = ToyModels.build(type, GameData.player_color(owner_slot), id * 7919 + 13)
+	model = parts["root"]
 	add_child(model)
-	var pc := GameData.player_color(owner_slot)
-	match type:
-		"worker":
-			_soldier(pc)
-			# Opwindsleutel op de rug
-			_part(_cyl(0.04, 0.35), Color(0.85, 0.7, 0.2), Vector3(0, 0.85, -0.42), Vector3(90, 0, 0))
-			_part(_box(Vector3(0.45, 0.16, 0.05)), Color(0.85, 0.7, 0.2), Vector3(0, 0.85, -0.6))
-			carry_mesh = _part(_box(Vector3(0.32, 0.32, 0.32)), Color.WHITE, Vector3(0, 0.75, 0.38))
-			carry_mesh.visible = false
-		"rifleman":
-			_soldier(pc)
-			_part(_box(Vector3(0.07, 0.07, 0.85)), Color(0.2, 0.2, 0.2), Vector3(0.28, 0.85, 0.25))
-		"hq":
-			_part(_box(Vector3(8, 4, 8)), pc.lerp(Color.WHITE, 0.35), Vector3(0, 2, 0))
-			_part(_box(Vector3(8.6, 0.6, 8.6)), pc.darkened(0.25), Vector3(0, 4.3, 0))
-			_part(_box(Vector3(3, 3, 0.1)), Color(0.98, 0.85, 0.25), Vector3(0, 2.2, 4.01))
-			_part(_box(Vector3(1.2, 1.2, 1.2)), Color(0.9, 0.25, 0.25), Vector3(-2.5, 5.2, -2))
-			_part(_box(Vector3(1.2, 1.2, 1.2)), Color(0.25, 0.75, 0.3), Vector3(-1.1, 5.2, -2.3))
-			_part(_box(Vector3(1.2, 1.2, 1.2)), Color(0.98, 0.85, 0.25), Vector3(-1.8, 6.4, -2.1))
-			_flag(pc, Vector3(3.3, 4.6, 3.3))
-		"storage":
-			_part(_box(Vector3(4, 2.2, 4)), Color(0.55, 0.36, 0.2), Vector3(0, 1.1, 0))
-			_part(_box(Vector3(4.06, 0.4, 4.06)), pc, Vector3(0, 1.2, 0))
-			_part(_box(Vector3(4.2, 0.4, 4.2)), Color(0.42, 0.27, 0.15), Vector3(0, 2.4, 0))
-		"house":
-			_part(_box(Vector3(4, 2.4, 4)), pc, Vector3(0, 1.2, 0))
-			for x in [-1, 1]:
-				for z in [-1, 1]:
-					_part(_cyl(0.6, 0.45), pc.lightened(0.1), Vector3(x, 2.62, z))
-		"barracks":
-			_part(_box(Vector3(6, 3, 6)), Color(0.55, 0.55, 0.35), Vector3(0, 1.5, 0))
-			_part(_box(Vector3(6.4, 0.4, 6.4)), Color(0.4, 0.4, 0.25), Vector3(0, 3.2, 0))
-			_part(_box(Vector3(1.6, 2, 0.1)), Color(0.2, 0.15, 0.1), Vector3(0, 1, 3.01))
-			_flag(pc, Vector3(2.5, 3.4, 2.5))
-		"tower":
-			_part(_cyl(1.2, 6), Color(0.72, 0.72, 0.78), Vector3(0, 3, 0))
-			_part(_box(Vector3(3, 0.8, 3)), pc, Vector3(0, 6.4, 0))
-			for i in 4:
-				var a := TAU * i / 4.0 + 0.4
-				_part(_sphere(0.35), GameData.RESOURCE_COLORS["marbles"], Vector3(cos(a) * 0.8, 7.1, sin(a) * 0.8))
-		# --- Toy Dinos ---
-		"mini_raptor":
-			_raptor(pc, 0.8)
-			# Mandje op de rug voor wat hij draagt
-			_part(_cyl(0.18, 0.2), Color(0.6, 0.45, 0.25), Vector3(0, 0.95, -0.1))
-			carry_mesh = _part(_box(Vector3(0.28, 0.28, 0.28)), Color.WHITE, Vector3(0, 1.15, -0.1))
-			carry_mesh.visible = false
-		"velociraptor":
-			_raptor(pc, 1.0)
-			for i in 3:
-				_part(_box(Vector3(0.52, 0.04, 0.1)), pc.darkened(0.45), Vector3(0, 0.95, -0.2 + i * 0.22))
-		"dilophosaurus":
-			_raptor(pc, 1.15)
-			_part(_box(Vector3(0.04, 0.35, 0.45)), Color(0.98, 0.8, 0.2), Vector3(0.1, 1.45, 0.6), Vector3(0, 0, 15))
-			_part(_box(Vector3(0.04, 0.35, 0.45)), Color(0.98, 0.8, 0.2), Vector3(-0.1, 1.45, 0.6), Vector3(0, 0, -15))
-		"triceratops":
-			_part(_box(Vector3(1.3, 1.0, 2.0)), pc, Vector3(0, 1.0, 0))
-			_part(_box(Vector3(1.0, 0.8, 0.8)), pc.lightened(0.1), Vector3(0, 1.0, 1.3))
-			_part(_box(Vector3(1.6, 1.2, 0.15)), pc.lightened(0.35), Vector3(0, 1.45, 0.95))
-			for hx in [-0.3, 0.3]:
-				_part(_cone(0.1, 0.7), Color(0.95, 0.92, 0.8), Vector3(hx, 1.35, 1.95), Vector3(80, 0, 0))
-			_part(_cone(0.08, 0.35), Color(0.95, 0.92, 0.8), Vector3(0, 1.05, 1.85), Vector3(70, 0, 0))
-			_part(_cone(0.3, 0.9), pc, Vector3(0, 1.0, -1.35), Vector3(-90, 0, 0))
-			for lx in [-0.45, 0.45]:
-				for lz in [-0.65, 0.65]:
-					_part(_cyl(0.18, 0.6), pc.darkened(0.2), Vector3(lx, 0.3, lz))
-		"pteranodon":
-			var body := _part(_capsule(0.2, 0.9), pc, Vector3(0, 0, 0), Vector3(90, 0, 0))
-			body.scale = Vector3(1, 1, 1)
-			_part(_box(Vector3(3.2, 0.05, 0.7)), pc.lightened(0.2), Vector3(0, 0.05, 0.05))
-			_part(_cone(0.12, 0.6), Color(0.98, 0.8, 0.2), Vector3(0, 0.05, 0.75), Vector3(90, 0, 0))
-			_part(_cone(0.1, 0.5), pc.darkened(0.3), Vector3(0, 0.2, 0.25), Vector3(-60, 0, 0))
-		"trex":
-			_raptor(pc, 2.2)
-			for ax in [-0.25, 0.25]:
-				_part(_cyl(0.06, 0.4), pc.darkened(0.2), Vector3(ax * 2.2 * 0.6, 1.6, 0.9), Vector3(70, 0, 0))
-		"volcano":
-			_part(_cone_frustum(4.0, 1.6, 5.0), Color(0.45, 0.35, 0.3), Vector3(0, 2.5, 0))
-			_part(_cyl(1.5, 0.25), Color(1.0, 0.45, 0.1), Vector3(0, 5.0, 0))
-			_part(_cyl(4.05, 0.6), pc, Vector3(0, 0.3, 0))
-			_part(_sphere(0.5), Color(1.0, 0.6, 0.15), Vector3(0.3, 5.6, 0.2))
-			_flag(pc, Vector3(3.2, 0.5, 3.2))
-		"nest":
-			_part(_cyl(1.9, 0.8), Color(0.55, 0.4, 0.25), Vector3(0, 0.4, 0))
-			_part(_cyl(1.5, 0.82), Color(0.4, 0.28, 0.16), Vector3(0, 0.42, 0))
-			for i in 3:
-				var a := TAU * i / 3.0
-				var egg := _part(_sphere(0.4), pc.lightened(0.45), Vector3(cos(a) * 0.6, 1.0, sin(a) * 0.6))
-				egg.scale = Vector3(1, 1.3, 1)
-		"hatchery":
-			_part(_box(Vector3(6, 1.2, 6)), Color(0.45, 0.55, 0.3), Vector3(0, 0.6, 0))
-			var dome := _part(_sphere(2.6), pc, Vector3(0, 1.2, 0))
-			dome.scale = Vector3(1, 0.75, 1)
-			for i in 4:
-				var a := TAU * i / 4.0 + 0.8
-				var egg := _part(_sphere(0.35), Color(0.95, 0.92, 0.8), Vector3(cos(a) * 2.6, 1.6, sin(a) * 2.6))
-				egg.scale = Vector3(1, 1.3, 1)
-		"fossil_lab":
-			_part(_box(Vector3(6, 3.4, 6)), Color(0.85, 0.85, 0.8), Vector3(0, 1.7, 0))
-			_part(_box(Vector3(6.3, 0.35, 6.3)), pc, Vector3(0, 3.55, 0))
-			_part(_cyl(0.25, 3.0), Color(0.97, 0.95, 0.88), Vector3(0, 4.1, 0), Vector3(0, 0, 90))
-			for bx in [-1.6, 1.6]:
-				for bz in [-0.25, 0.25]:
-					_part(_sphere(0.35), Color(0.97, 0.95, 0.88), Vector3(bx, 4.1, bz))
-			_part(_box(Vector3(1.6, 2, 0.1)), Color(0.3, 0.5, 0.6), Vector3(0, 1, 3.01))
-		"lookout":
-			_part(_box(Vector3(2.8, 2.2, 2.8)), Color(0.5, 0.48, 0.45), Vector3(0, 1.1, 0), Vector3(0, 15, 0))
-			_part(_box(Vector3(2.2, 2.0, 2.2)), Color(0.58, 0.55, 0.5), Vector3(0, 3.1, 0), Vector3(0, -10, 0))
-			_part(_box(Vector3(1.6, 1.4, 1.6)), Color(0.5, 0.48, 0.45), Vector3(0, 4.7, 0), Vector3(0, 25, 0))
-			_part(_box(Vector3(2.4, 0.3, 2.4)), pc, Vector3(0, 5.55, 0))
-		"plastic":
-			_part(_box(Vector3(3, 1.6, 2)), Color(0.8, 0.2, 0.2), Vector3(0, 0.8, 0))
-			_part(_box(Vector3(3.1, 0.3, 2.1)), Color(0.98, 0.85, 0.25), Vector3(0, 1.75, 0))
-			_part(_sphere(0.4), Color(0.25, 0.5, 0.95), Vector3(0.6, 2.25, 0))
-			_part(_box(Vector3(0.6, 0.6, 0.6)), Color(0.25, 0.75, 0.3), Vector3(-0.6, 2.2, 0.2), Vector3(0, 30, 0))
-		"blocks":
-			var rng := RandomNumberGenerator.new()
-			rng.seed = id
-			var colors := [Color(0.9, 0.25, 0.25), Color(0.25, 0.5, 0.95), Color(0.98, 0.85, 0.25), Color(0.25, 0.75, 0.3), Color(0.85, 0.55, 0.3)]
-			for i in 8:
-				var level := 0 if i < 4 else (1 if i < 7 else 2)
-				var spread := 1.0 - level * 0.35
-				var p := Vector3(rng.randf_range(-spread, spread), 0.45 + level * 0.9, rng.randf_range(-spread, spread))
-				_part(_box(Vector3(0.9, 0.9, 0.9)), colors[rng.randi() % colors.size()], p, Vector3(0, rng.randf_range(0, 90), 0))
-		"batteries":
-			for i in 3:
-				var a := TAU * i / 3.0
-				var p := Vector3(cos(a) * 0.55, 0, sin(a) * 0.55)
-				_part(_cyl(0.35, 1.4), Color(0.12, 0.12, 0.12), p + Vector3(0, 0.7, 0))
-				_part(_cyl(0.36, 0.35), Color(0.85, 0.55, 0.25), p + Vector3(0, 1.45, 0))
-				_part(_cyl(0.12, 0.15), Color(0.8, 0.8, 0.8), p + Vector3(0, 1.7, 0))
-		"marbles":
-			var rng := RandomNumberGenerator.new()
-			rng.seed = id
-			var colors := [Color(0.45, 0.75, 0.95), Color(0.95, 0.4, 0.6), Color(0.5, 0.95, 0.6), Color(0.95, 0.95, 0.95)]
-			_part(_cyl(1.0, 0.5), Color(0.5, 0.35, 0.6), Vector3(0, 0.25, 0))
-			for i in 9:
-				var r := rng.randf_range(0.28, 0.42)
-				var p := Vector3(rng.randf_range(-0.8, 0.8), 0.5 + r + (0.5 if i > 5 else 0.0), rng.randf_range(-0.8, 0.8))
-				_part(_sphere(r), colors[i % colors.size()], p)
+	carry_mesh = parts.get("carry")
+	if kind == "unit":
+		# Units iets groter tonen dan hun botsingsstraal, dan lees je ze beter.
+		for c in model.get_children():
+			c.position *= UNIT_VISUAL_SCALE
+			c.scale *= UNIT_VISUAL_SCALE
+		if parts.get("muzzle") != null:
+			parts["muzzle"] *= UNIT_VISUAL_SCALE
+	_was_complete = complete
 
-	# Selectiering
-	var torus := TorusMesh.new()
-	var r := (half * 1.3) if kind == "building" else radius + 0.2
-	torus.inner_radius = r
-	torus.outer_radius = r + 0.14
+	# Selectiering (gloeiende ring op de grond)
+	var r := (half * 1.45) if kind == "building" else radius + 0.35
 	ring = MeshInstance3D.new()
-	ring.mesh = torus
-	ring.position.y = 0.06
-	ring.scale.y = 0.3
+	ring.mesh = ToyMesh.plane(r * 2.0, r * 2.0)
+	ring.position.y = 0.07
 	ring.visible = false
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(ring)
 
-	if kind == "building":
-		label = Label3D.new()
-		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		label.no_depth_test = true
-		label.font_size = 48
-		label.outline_size = 10
-		label.pixel_size = 0.012
-		label.position.y = pick_height + 1.2
-		add_child(label)
-
-
-func _soldier(pc: Color) -> void:
-	_part(_capsule(0.28, 1.05), pc, Vector3(0, 0.6, 0))
-	_part(_sphere(0.21), Color(0.96, 0.82, 0.66), Vector3(0, 1.3, 0))
-	var helmet := _part(_sphere(0.25), pc.darkened(0.35), Vector3(0, 1.42, 0))
-	helmet.scale = Vector3(1, 0.55, 1)
-
-
-## Tweebenige dino (raptor, dilophosaurus, T-rex), s = schaal.
-func _raptor(pc: Color, k: float) -> void:
-	_part(_capsule(0.26 * k, 1.1 * k), pc, Vector3(0, 0.75 * k, 0), Vector3(80, 0, 0))
-	_part(_box(Vector3(0.36, 0.3, 0.5) * k), pc.lightened(0.1), Vector3(0, 1.15 * k, 0.6 * k))
-	_part(_box(Vector3(0.38, 0.06, 0.12) * k), Color(0.15, 0.15, 0.15), Vector3(0, 1.22 * k, 0.75 * k))
-	_part(_cone(0.2 * k, 1.1 * k), pc, Vector3(0, 0.7 * k, -0.85 * k), Vector3(-100, 0, 0))
-	for lx in [-0.15, 0.15]:
-		_part(_cyl(0.08 * k, 0.55 * k), pc.darkened(0.25), Vector3(lx * k, 0.27 * k, 0))
-
-
-func _flag(pc: Color, base: Vector3) -> void:
-	_part(_cyl(0.07, 3.0), Color(0.85, 0.85, 0.85), base + Vector3(0, 1.5, 0))
-	_part(_box(Vector3(0.05, 0.7, 1.2)), pc, base + Vector3(0, 2.6, 0.62))
-
-
-func _part(mesh: Mesh, color: Color, pos: Vector3, rot_deg := Vector3.ZERO) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = GameData.make_mat(color)
-	mi.position = pos
-	mi.rotation_degrees = rot_deg
-	model.add_child(mi)
-	return mi
-
-
-func _box(size: Vector3) -> BoxMesh:
-	var m := BoxMesh.new()
-	m.size = size
-	return m
-
-
-func _cyl(r: float, h: float) -> CylinderMesh:
-	var m := CylinderMesh.new()
-	m.top_radius = r
-	m.bottom_radius = r
-	m.height = h
-	m.radial_segments = 16
-	return m
-
-
-func _cone(r: float, h: float) -> CylinderMesh:
-	return _cone_frustum(r, 0.0, h)
-
-
-func _cone_frustum(bottom: float, top: float, h: float) -> CylinderMesh:
-	var m := CylinderMesh.new()
-	m.top_radius = top
-	m.bottom_radius = bottom
-	m.height = h
-	m.radial_segments = 16
-	return m
-
-
-func _sphere(r: float) -> SphereMesh:
-	var m := SphereMesh.new()
-	m.radius = r
-	m.height = r * 2.0
-	m.radial_segments = 16
-	m.rings = 8
-	return m
-
-
-func _capsule(r: float, h: float) -> CapsuleMesh:
-	var m := CapsuleMesh.new()
-	m.radius = r
-	m.height = h
-	return m
+	# Zachte contactschaduw onder units
+	if kind == "unit":
+		var blob := MeshInstance3D.new()
+		var s := radius * 2.6
+		blob.mesh = ToyMesh.plane(s, s)
+		blob.material_override = Mat.blob_shadow()
+		blob.position.y = 0.04
+		blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(blob)

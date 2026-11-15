@@ -4,7 +4,9 @@ Een realtime strategiespel in de stijl van Age of Empires, maar dan met speelgoe
 Twee factions vechten om de kinderkamer: **Toy Soldiers** (opwindsoldaatjes) en **Toy Dinos** (plastic dino's).
 Gemaakt in **Godot 4.3**. Tot 4 spelers (Blauw, Rood, Groen, Geel), ook over het netwerk.
 
-![Screenshot](docs/screenshot.png)
+![Screenshot](docs/screenshot.jpg)
+
+![Hoofdmenu](docs/screenshot-menu.jpg)
 
 ## Starten
 
@@ -32,7 +34,8 @@ godot --path . -- --join=127.0.0.1
 |---|---|
 | Selecteren | linkermuisknop (slepen voor een kader, Shift om toe te voegen) |
 | Lopen / verzamelen / bouwen / aanvallen | rechtermuisknop op grond, bron, bouwwerk of vijand |
-| Camera | WASD, pijltjes of muis tegen de rand; middelste muisknop slepen |
+| Camera | WASD, pijltjes of muis tegen de rand; middelste muisknop slepen; klik/sleep op de minikaart |
+| Units via de minikaart sturen | rechtsklik op de minikaart |
 | Zoomen | scrollwiel |
 | Naar je HQ | Spatie |
 | Werkeloze worker | `.` of de knop bovenin |
@@ -73,7 +76,7 @@ Workers lopen naar een bron, pakken 10 stuks en brengen die naar de dichtstbijzi
 
 ## Faction 2: Toy Dinos
 
-![Toy Dinos](docs/screenshot-dinos.png)
+![Toy Dinos](docs/screenshot-dinos.jpg)
 
 Zelfde 4 resources, maar een andere speelstijl: geen voertuigen, wel dieren die vanzelf genezen
 (0,6 HP per seconde) en een vliegende verkenner.
@@ -112,12 +115,27 @@ scripts/
   autoload/net.gd           lobby en ENet-verbinding
   main.gd                   hoofdmenu en lobby-UI
   game/game.gd              wereld, simulatie, netwerk-sync
-  game/entity.gd            unit/gebouw/bron + placeholder-modellen
-  game/player_controller.gd selecteren, commando's, bouwen
-  game/rts_camera.gd        camera
-  game/hud.gd               resourcebalk, info, knoppen
+  game/entity.gd            unit/gebouw/bron: netwerkstaat + animaties
+  game/player_controller.gd selecteren, commando's, bouwen (met spookmodel)
+  game/rts_camera.gd        camera (met lichte tilt-shift)
+  game/hud.gd               game-UI: grondstoffen, selectie + 3D-portret, commandokaart
+  visual/toy_mesh.gd        procedurele meshes met afgeronde randen (plastic look)
+  visual/toy_mat.gd         materialen: glimmend plastic, metaal, knikkerglas, selectiering
+  visual/toy_models.gd      alle 3D-modellen (units, gebouwen, bronnen, iconen)
+  visual/room.gd            de kinderkamer: houten vloer, gevlochten kleed, licht, nabewerking
+  visual/fx.gd              effecten: splinters bij een treffer, poef, mondingsvuur, stof
+  ui/ui_skin.gd             UI-thema; panelen/knoppen worden bij het opstarten getekend
+  ui/icons.gd               (autoload) iconen en portretten uit de echte 3D-modellen
+  ui/minimap.gd             minikaart
+  ui/menu_scene.gd          levend slagveldje achter het hoofdmenu
   debug/smoke_test.gd       geautomatiseerde test
+  debug/showcase.gd         vitrine met alle modellen naast elkaar
 ```
+
+**Graphics:** er zitten geen losse 3D-bestanden of plaatjes in het project. Alle modellen
+worden in code opgebouwd uit afgeronde plastic onderdelen (`toy_models.gd`), en de iconen in de
+interface zijn foto's van diezelfde modellen. Een model aanpassen = een paar regels in
+`toy_models.gd`; het icoon verandert vanzelf mee.
 
 **Netwerk:** de host is de baas (server-authoritative). Alleen de host draait de simulatie.
 Spelers sturen commando's (`cmd_move`, `cmd_target`, `cmd_build`, `cmd_train`...) via RPC;
@@ -135,6 +153,11 @@ Speelt 30 seconden vanzelf (verzamelen, worker trainen, huisje bouwen) en eindig
 `RESULTAAT: OK`. Voor multiplayer: start een host met `--host --autostart=2 --smoke-test`
 en een client met `--join=127.0.0.1 --faction=dinos --smoke-test`.
 
+Screenshots maken (vensterbaar, niet headless): voeg `--screenshot=pad.png` toe aan de
+smoke- of gevechtstest. Extra opties: `--select=hq` (selecteer iets voor de foto),
+`--place=barracks` (bouwmodus), `--menu-shot` (hoofdmenu) en `--showcase=units`
+(of `buildings`, `resources`) voor een vitrine met alle modellen.
+
 Gevechtstest voor de dino-regels (T-rex wint, Triceratops-bonus, vliegen, genezen):
 
 ```
@@ -147,5 +170,12 @@ godot --headless --path . -- --single --faction=dinos --combat-test
 - Meer Toy Soldiers-units: Bazooka, Sluipschutter, Speelgoedjeep, Speelgoedtank (Garage)
 - Rotswand voor de Dinos en blokkenmuur voor de Soldiers
 - Werkplaats met upgrades, blokkenmuren
-- Fog of war, minimap, overwinning/verlies
-- Echte modellen en geluid
+- Fog of war, overwinning/verlies
+- Geluid en muziek
+
+## Credits
+
+- Lettertypen [Lilita One](https://fonts.google.com/specimen/Lilita+One) (Juan Montoreano) en
+  [Fredoka](https://fonts.google.com/specimen/Fredoka) (The Fredoka Project Authors), beide onder de
+  SIL Open Font License 1.1. De licenties staan in `assets/fonts/`.
+- Alle modellen, texturen, shaders en UI-onderdelen zijn zelf gemaakt (procedureel, in code).
