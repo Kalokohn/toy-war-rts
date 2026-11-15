@@ -166,7 +166,7 @@ func _hotkey(event: InputEventKey) -> void:
 				set_selection([])
 		KEY_SPACE:
 			for e in game.entities.values():
-				if e.kind == "building" and e.type == "hq" and e.owner_slot == game.my_slot:
+				if e.kind == "building" and e.type == GameData.faction_data(game.my_faction)["hq"] and e.owner_slot == game.my_slot:
 					game.cam_rig.focus(e.position)
 					return
 		KEY_PERIOD:
@@ -183,7 +183,7 @@ func _hotkey(event: InputEventKey) -> void:
 					train(trains[0])
 		_:
 			if own_workers().size() > 0:
-				for item in GameData.BUILD_MENU:
+				for item in GameData.faction_data(game.my_faction)["build_menu"]:
 					if OS.get_keycode_string(event.keycode) == item[1]:
 						start_place(item[0])
 
@@ -203,7 +203,7 @@ func _finish_select(end: Vector2, additive: bool) -> void:
 		for e in game.entities.values():
 			if e.dead or e.kind != "unit" or e.owner_slot != game.my_slot or e in list:
 				continue
-			var p: Vector3 = e.position + Vector3(0, 0.8, 0)
+			var p: Vector3 = e.position + Vector3(0, e.pick_height * 0.5, 0)
 			if not cam.is_position_behind(p) and rect.has_point(cam.unproject_position(p)):
 				list.append(e)
 	# Eigen units en andermans spul niet door elkaar selecteren.

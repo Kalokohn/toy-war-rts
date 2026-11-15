@@ -1,7 +1,7 @@
 # Toy War RTS
 
 Een realtime strategiespel in de stijl van Age of Empires, maar dan met speelgoed.
-De eerste faction is **Toy Soldiers**: opwindsoldaatjes die een kinderkamer veroveren.
+Twee factions vechten om de kinderkamer: **Toy Soldiers** (opwindsoldaatjes) en **Toy Dinos** (plastic dino's).
 Gemaakt in **Godot 4.3**. Tot 4 spelers (Blauw, Rood, Groen, Geel), ook over het netwerk.
 
 ![Screenshot](docs/screenshot.png)
@@ -71,7 +71,38 @@ Workers lopen naar een bron, pakken 10 stuks en brengen die naar de dichtstbijzi
 | Opwindsoldaatje | 50 Plastic | verzamelt en bouwt |
 | Geweerschutter | 60 Plastic, 20 Batterijen | basis-infanterie |
 
-Alle getallen staan in `scripts/autoload/game_data.gd`.
+## Faction 2: Toy Dinos
+
+![Toy Dinos](docs/screenshot-dinos.png)
+
+Zelfde 4 resources, maar een andere speelstijl: geen voertuigen, wel dieren die vanzelf genezen
+(0,6 HP per seconde) en een vliegende verkenner.
+
+**Gebouwen**
+
+| Gebouw | Kost | Doet |
+|---|---|---|
+| Vulkaan-speelset (HQ) | start | inleverpunt, traint Mini-raptors, +10 pop |
+| Nest (N) | 80 Blokjes | inleverpunt én +5 pop |
+| Broedplaats (B) | 150 Blokjes | Velociraptor, Dilophosaurus |
+| Fossielenlab (F) | 150 Blokjes, 100 Batterijen | Triceratops, Pteranodon, T-rex |
+| Uitkijkrots (U) | 25 Blokjes, 100 Knikkers | schiet op vijandelijke units, groot bereik |
+
+**Units**
+
+| Unit | Kost | |
+|---|---|---|
+| Mini-raptor | 50 Plastic | worker, iets sneller dan het opwindsoldaatje |
+| Velociraptor | 50 Plastic, 10 Batterijen | snel, goedkoop, melee |
+| Dilophosaurus | 50 Plastic, 25 Batterijen | spuwt op afstand |
+| Triceratops | 120 Plastic, 60 Batterijen, 2 pop | tank, dubbele schade tegen gebouwen |
+| Pteranodon | 40 Plastic, 30 Batterijen | vliegende verkenner, vliegt over alles heen, valt niet aan |
+| T-rex | 250 Plastic, 150 Batterijen, 4 pop | eindbaas |
+
+Je kiest je faction in het hoofdmenu of in de lobby.
+
+Alle getallen staan in `scripts/autoload/game_data.gd`. Een nieuwe faction toevoegen = een blok in
+`FACTIONS` plus de units/gebouwen, en modellen in `entity.gd`.
 
 ## Hoe de code in elkaar zit
 
@@ -102,12 +133,19 @@ godot --headless --path . -- --single --smoke-test
 
 Speelt 30 seconden vanzelf (verzamelen, worker trainen, huisje bouwen) en eindigt met
 `RESULTAAT: OK`. Voor multiplayer: start een host met `--host --autostart=2 --smoke-test`
-en een client met `--join=127.0.0.1 --smoke-test`.
+en een client met `--join=127.0.0.1 --faction=dinos --smoke-test`.
+
+Gevechtstest voor de dino-regels (T-rex wint, Triceratops-bonus, vliegen, genezen):
+
+```
+godot --headless --path . -- --single --faction=dinos --combat-test
+```
 
 ## Volgende stappen
 
 - Pathfinding met een navmesh (nu lopen units recht en sturen ze simpel om obstakels heen)
-- Meer units: Bazooka, Sluipschutter, Speelgoedjeep, Speelgoedtank (Garage)
+- Meer Toy Soldiers-units: Bazooka, Sluipschutter, Speelgoedjeep, Speelgoedtank (Garage)
+- Rotswand voor de Dinos en blokkenmuur voor de Soldiers
 - Werkplaats met upgrades, blokkenmuren
 - Fog of war, minimap, overwinning/verlies
 - Echte modellen en geluid

@@ -25,6 +25,7 @@ var carry_amount := 0
 var work_timer := 0.0
 var cooldown := 0.0
 var moving := false
+var flying := false
 
 # Gebouw
 var progress := 1.0
@@ -63,8 +64,9 @@ func setup(p_id: int, p_kind: String, p_type: String, p_owner: int, pos: Vector3
 			max_hp = d["hp"]
 			hp = max_hp
 			radius = d["radius"]
-			pick_radius = 0.8
-			pick_height = 1.6
+			flying = d.get("flying", false)
+			pick_radius = maxf(0.8, radius * 1.3)
+			pick_height = 7.0 if flying else maxf(1.6, radius * 2.5)
 		"building":
 			var d: Dictionary = GameData.BUILDINGS[type]
 			max_hp = d["hp"]
@@ -140,7 +142,10 @@ func _process(delta: float) -> void:
 		rotation.y = lerp_angle(rotation.y, net_rot, t)
 	match kind:
 		"unit":
-			if moving:
+			if flying:
+				_bob += delta * 3.0
+				model.position.y = 4.0 + sin(_bob) * 0.3
+			elif moving:
 				_bob += delta * 14.0
 				model.position.y = absf(sin(_bob)) * 0.12
 			else:
@@ -212,6 +217,76 @@ func _build_visual() -> void:
 			for i in 4:
 				var a := TAU * i / 4.0 + 0.4
 				_part(_sphere(0.35), GameData.RESOURCE_COLORS["marbles"], Vector3(cos(a) * 0.8, 7.1, sin(a) * 0.8))
+		# --- Toy Dinos ---
+		"mini_raptor":
+			_raptor(pc, 0.8)
+			# Mandje op de rug voor wat hij draagt
+			_part(_cyl(0.18, 0.2), Color(0.6, 0.45, 0.25), Vector3(0, 0.95, -0.1))
+			carry_mesh = _part(_box(Vector3(0.28, 0.28, 0.28)), Color.WHITE, Vector3(0, 1.15, -0.1))
+			carry_mesh.visible = false
+		"velociraptor":
+			_raptor(pc, 1.0)
+			for i in 3:
+				_part(_box(Vector3(0.52, 0.04, 0.1)), pc.darkened(0.45), Vector3(0, 0.95, -0.2 + i * 0.22))
+		"dilophosaurus":
+			_raptor(pc, 1.15)
+			_part(_box(Vector3(0.04, 0.35, 0.45)), Color(0.98, 0.8, 0.2), Vector3(0.1, 1.45, 0.6), Vector3(0, 0, 15))
+			_part(_box(Vector3(0.04, 0.35, 0.45)), Color(0.98, 0.8, 0.2), Vector3(-0.1, 1.45, 0.6), Vector3(0, 0, -15))
+		"triceratops":
+			_part(_box(Vector3(1.3, 1.0, 2.0)), pc, Vector3(0, 1.0, 0))
+			_part(_box(Vector3(1.0, 0.8, 0.8)), pc.lightened(0.1), Vector3(0, 1.0, 1.3))
+			_part(_box(Vector3(1.6, 1.2, 0.15)), pc.lightened(0.35), Vector3(0, 1.45, 0.95))
+			for hx in [-0.3, 0.3]:
+				_part(_cone(0.1, 0.7), Color(0.95, 0.92, 0.8), Vector3(hx, 1.35, 1.95), Vector3(80, 0, 0))
+			_part(_cone(0.08, 0.35), Color(0.95, 0.92, 0.8), Vector3(0, 1.05, 1.85), Vector3(70, 0, 0))
+			_part(_cone(0.3, 0.9), pc, Vector3(0, 1.0, -1.35), Vector3(-90, 0, 0))
+			for lx in [-0.45, 0.45]:
+				for lz in [-0.65, 0.65]:
+					_part(_cyl(0.18, 0.6), pc.darkened(0.2), Vector3(lx, 0.3, lz))
+		"pteranodon":
+			var body := _part(_capsule(0.2, 0.9), pc, Vector3(0, 0, 0), Vector3(90, 0, 0))
+			body.scale = Vector3(1, 1, 1)
+			_part(_box(Vector3(3.2, 0.05, 0.7)), pc.lightened(0.2), Vector3(0, 0.05, 0.05))
+			_part(_cone(0.12, 0.6), Color(0.98, 0.8, 0.2), Vector3(0, 0.05, 0.75), Vector3(90, 0, 0))
+			_part(_cone(0.1, 0.5), pc.darkened(0.3), Vector3(0, 0.2, 0.25), Vector3(-60, 0, 0))
+		"trex":
+			_raptor(pc, 2.2)
+			for ax in [-0.25, 0.25]:
+				_part(_cyl(0.06, 0.4), pc.darkened(0.2), Vector3(ax * 2.2 * 0.6, 1.6, 0.9), Vector3(70, 0, 0))
+		"volcano":
+			_part(_cone_frustum(4.0, 1.6, 5.0), Color(0.45, 0.35, 0.3), Vector3(0, 2.5, 0))
+			_part(_cyl(1.5, 0.25), Color(1.0, 0.45, 0.1), Vector3(0, 5.0, 0))
+			_part(_cyl(4.05, 0.6), pc, Vector3(0, 0.3, 0))
+			_part(_sphere(0.5), Color(1.0, 0.6, 0.15), Vector3(0.3, 5.6, 0.2))
+			_flag(pc, Vector3(3.2, 0.5, 3.2))
+		"nest":
+			_part(_cyl(1.9, 0.8), Color(0.55, 0.4, 0.25), Vector3(0, 0.4, 0))
+			_part(_cyl(1.5, 0.82), Color(0.4, 0.28, 0.16), Vector3(0, 0.42, 0))
+			for i in 3:
+				var a := TAU * i / 3.0
+				var egg := _part(_sphere(0.4), pc.lightened(0.45), Vector3(cos(a) * 0.6, 1.0, sin(a) * 0.6))
+				egg.scale = Vector3(1, 1.3, 1)
+		"hatchery":
+			_part(_box(Vector3(6, 1.2, 6)), Color(0.45, 0.55, 0.3), Vector3(0, 0.6, 0))
+			var dome := _part(_sphere(2.6), pc, Vector3(0, 1.2, 0))
+			dome.scale = Vector3(1, 0.75, 1)
+			for i in 4:
+				var a := TAU * i / 4.0 + 0.8
+				var egg := _part(_sphere(0.35), Color(0.95, 0.92, 0.8), Vector3(cos(a) * 2.6, 1.6, sin(a) * 2.6))
+				egg.scale = Vector3(1, 1.3, 1)
+		"fossil_lab":
+			_part(_box(Vector3(6, 3.4, 6)), Color(0.85, 0.85, 0.8), Vector3(0, 1.7, 0))
+			_part(_box(Vector3(6.3, 0.35, 6.3)), pc, Vector3(0, 3.55, 0))
+			_part(_cyl(0.25, 3.0), Color(0.97, 0.95, 0.88), Vector3(0, 4.1, 0), Vector3(0, 0, 90))
+			for bx in [-1.6, 1.6]:
+				for bz in [-0.25, 0.25]:
+					_part(_sphere(0.35), Color(0.97, 0.95, 0.88), Vector3(bx, 4.1, bz))
+			_part(_box(Vector3(1.6, 2, 0.1)), Color(0.3, 0.5, 0.6), Vector3(0, 1, 3.01))
+		"lookout":
+			_part(_box(Vector3(2.8, 2.2, 2.8)), Color(0.5, 0.48, 0.45), Vector3(0, 1.1, 0), Vector3(0, 15, 0))
+			_part(_box(Vector3(2.2, 2.0, 2.2)), Color(0.58, 0.55, 0.5), Vector3(0, 3.1, 0), Vector3(0, -10, 0))
+			_part(_box(Vector3(1.6, 1.4, 1.6)), Color(0.5, 0.48, 0.45), Vector3(0, 4.7, 0), Vector3(0, 25, 0))
+			_part(_box(Vector3(2.4, 0.3, 2.4)), pc, Vector3(0, 5.55, 0))
 		"plastic":
 			_part(_box(Vector3(3, 1.6, 2)), Color(0.8, 0.2, 0.2), Vector3(0, 0.8, 0))
 			_part(_box(Vector3(3.1, 0.3, 2.1)), Color(0.98, 0.85, 0.25), Vector3(0, 1.75, 0))
@@ -274,6 +349,16 @@ func _soldier(pc: Color) -> void:
 	helmet.scale = Vector3(1, 0.55, 1)
 
 
+## Tweebenige dino (raptor, dilophosaurus, T-rex), s = schaal.
+func _raptor(pc: Color, k: float) -> void:
+	_part(_capsule(0.26 * k, 1.1 * k), pc, Vector3(0, 0.75 * k, 0), Vector3(80, 0, 0))
+	_part(_box(Vector3(0.36, 0.3, 0.5) * k), pc.lightened(0.1), Vector3(0, 1.15 * k, 0.6 * k))
+	_part(_box(Vector3(0.38, 0.06, 0.12) * k), Color(0.15, 0.15, 0.15), Vector3(0, 1.22 * k, 0.75 * k))
+	_part(_cone(0.2 * k, 1.1 * k), pc, Vector3(0, 0.7 * k, -0.85 * k), Vector3(-100, 0, 0))
+	for lx in [-0.15, 0.15]:
+		_part(_cyl(0.08 * k, 0.55 * k), pc.darkened(0.25), Vector3(lx * k, 0.27 * k, 0))
+
+
 func _flag(pc: Color, base: Vector3) -> void:
 	_part(_cyl(0.07, 3.0), Color(0.85, 0.85, 0.85), base + Vector3(0, 1.5, 0))
 	_part(_box(Vector3(0.05, 0.7, 1.2)), pc, base + Vector3(0, 2.6, 0.62))
@@ -299,6 +384,19 @@ func _cyl(r: float, h: float) -> CylinderMesh:
 	var m := CylinderMesh.new()
 	m.top_radius = r
 	m.bottom_radius = r
+	m.height = h
+	m.radial_segments = 16
+	return m
+
+
+func _cone(r: float, h: float) -> CylinderMesh:
+	return _cone_frustum(r, 0.0, h)
+
+
+func _cone_frustum(bottom: float, top: float, h: float) -> CylinderMesh:
+	var m := CylinderMesh.new()
+	m.top_radius = top
+	m.bottom_radius = bottom
 	m.height = h
 	m.radial_segments = 16
 	return m

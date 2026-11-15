@@ -13,7 +13,7 @@ const PlayerController := preload("res://scripts/game/player_controller.gd")
 const Hud := preload("res://scripts/game/hud.gd")
 
 const SNAPSHOT_INTERVAL := 0.1
-const SNAPSHOT_CHUNK := 20
+const SNAPSHOT_CHUNK := 12
 const START_POSITIONS := [Vector3(-70, 0, -70), Vector3(70, 0, 70), Vector3(70, 0, -70), Vector3(-70, 0, 70)]
 ## Resources rond elke startpositie: [type, afstand richting midden, afstand opzij]
 const START_RESOURCES := [
@@ -28,6 +28,8 @@ signal world_ready
 var entities := {}          # id -> Entity
 var stocks := {}            # slot -> {resource: int, "pop": int, "cap": int}
 var my_slot := 0
+var my_faction := "soldiers"
+var factions := {}          # slot -> faction id
 var world_started := false
 
 var cam_rig: Node3D
@@ -43,6 +45,9 @@ var _statics: Array = []
 
 func _ready() -> void:
 	my_slot = Net.my_slot()
+	for slot in GameData.MAX_PLAYERS:
+		factions[slot] = Net.get_faction(slot)
+	my_faction = factions[my_slot]
 	for slot in GameData.MAX_PLAYERS:
 		var s: Dictionary = GameData.START_RESOURCES.duplicate()
 		s["pop"] = 0
@@ -97,9 +102,10 @@ func _setup_world() -> void:
 		var start: Vector3 = START_POSITIONS[slot]
 		var dir := -start.normalized()
 		var side := Vector3(-dir.z, 0, dir.x)
-		spawn_entity("building", "hq", slot, start)
+		var fd := GameData.faction_data(factions[slot])
+		spawn_entity("building", fd["hq"], slot, start)
 		for i in 3:
-			spawn_entity("unit", "worker", slot, start + dir * 6.5 + side * (i - 1) * 1.4)
+			spawn_entity("unit", fd["worker"], slot, start + dir * 6.5 + side * (i - 1) * 1.4)
 		for r in START_RESOURCES:
 			spawn_entity("resource", r[0], -1, (start + dir * r[1] + side * r[2]).round())
 	# Gedeelde resources in het midden van de kaart
@@ -225,9 +231,11 @@ func cmd_target(ids: Array, target_id: int) -> void:
 
 @rpc("any_peer", "call_local", "reliable")
 func cmd_build(ids: Array, btype: String, pos: Vector3) -> void:
-	if not multiplayer.is_server() or not GameData.can_build_type(btype):
+	if not multiplayer.is_server():
 		return
 	var slot := _sender_slot()
+	if slot < 0 or not GameData.can_build_type(factions[slot], btype):
+		return
 	var workers := _own_units(ids, slot).filter(func(u): return GameData.UNITS[u.type].get("can_build", false))
 	if workers.is_empty():
 		return
@@ -369,6 +377,9 @@ func _sim_unit(u, delta: float) -> void:
 	var ud: Dictionary = GameData.UNITS[u.type]
 	u.cooldown = maxf(u.cooldown - delta, 0.0)
 	u.moving = false
+	var regen: float = GameData.faction_data(factions[u.owner_slot])["regen"]
+	if regen > 0.0 and u.hp < u.max_hp:
+		u.hp = minf(u.hp + regen * delta, u.max_hp)
 	match u.state:
 		"idle":
 			if ud["sight"] > 0.0:
@@ -472,7 +483,7 @@ func _sim_attack(u, ud: Dictionary, delta: float) -> void:
 	_face(u, t.position)
 	if u.cooldown <= 0.0:
 		u.cooldown = ud["cooldown"]
-		_damage(t, ud["damage"], u)
+		_damage(t, ud["damage"] * ud.get("bonus", {}).get(t.kind, 1.0), u)
 
 
 func _damage(t, amount: float, attacker) -> void:
@@ -536,7 +547,7 @@ func _move_towards(u, target: Vector3, stop_dist: float, delta: float, ignore_id
 		return true
 	var dir := to / dist
 	# Simpel om obstakels heen sturen (vervangen we later door een navmesh).
-	for s in _statics:
+	for s in ([] if u.flying else _statics):
 		if s.id == ignore_id:
 			continue
 		var rel: Vector3 = s.position - u.position
@@ -570,6 +581,8 @@ func _resolve_collisions(units: Array) -> void:
 		var a = units[i]
 		for j in range(i + 1, units.size()):
 			var b = units[j]
+			if a.flying != b.flying:
+				continue
 			var d: Vector3 = b.position - a.position
 			d.y = 0
 			var min_d: float = a.radius + b.radius
@@ -581,8 +594,9 @@ func _resolve_collisions(units: Array) -> void:
 			var push := (min_d - dist) * 0.5
 			a.position -= n * push
 			b.position += n * push
-		for s in _statics:
-			_push_out(a, s)
+		if not a.flying:
+			for s in _statics:
+				_push_out(a, s)
 		a.position.x = clampf(a.position.x, -lim, lim)
 		a.position.z = clampf(a.position.z, -lim, lim)
 		a.position.y = 0
