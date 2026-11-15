@@ -6,11 +6,14 @@ extends Node
 ##   --host                 meteen hosten
 ##   --join=127.0.0.1       meteen verbinden
 ##   --name=Piet            spelernaam
+##   --faction=dinos        faction (soldiers of dinos)
 ##   --autostart=2          host start zodra er 2 spelers zijn
 ##   --smoke-test           geautomatiseerde test, sluit zichzelf af
+##   --combat-test          gevechtstest (singleplayer), sluit zichzelf af
 
 const GameScript := preload("res://scripts/game/game.gd")
 const SmokeTest := preload("res://scripts/debug/smoke_test.gd")
+const CombatTest := preload("res://scripts/debug/combat_test.gd")
 
 var args := {}
 var game: Node3D = null
@@ -21,6 +24,8 @@ var _lobby: Control
 var _name_edit: LineEdit
 var _ip_edit: LineEdit
 var _port_edit: LineEdit
+var _faction_pick: OptionButton
+var _lobby_faction: OptionButton
 var _status: Label
 var _players_box: VBoxContainer
 var _start_button: Button
@@ -36,6 +41,8 @@ func _ready() -> void:
 	Net.server_lost.connect(func(): _end_game("De verbinding met de host is verbroken."))
 	if args.has("name"):
 		_name_edit.text = args["name"]
+	if args.has("faction"):
+		_faction_pick.select(maxi(GameData.FACTION_ORDER.find(args["faction"]), 0))
 	if args.has("single"):
 		_on_single()
 	elif args.has("host"):
@@ -59,17 +66,21 @@ func _player_name() -> String:
 	return n if n != "" else "Speler"
 
 
+func _faction() -> String:
+	return GameData.FACTION_ORDER[_faction_pick.selected]
+
+
 func _port() -> int:
 	var p := int(_port_edit.text)
 	return p if p > 0 else Net.DEFAULT_PORT
 
 
 func _on_single() -> void:
-	Net.start_singleplayer(_player_name())
+	Net.start_singleplayer(_player_name(), _faction())
 
 
 func _on_host() -> void:
-	var err := Net.host(_port(), _player_name())
+	var err := Net.host(_port(), _player_name(), _faction())
 	if err != OK:
 		_show_menu("Hosten mislukt (poort %d bezet?)" % _port())
 		return
@@ -82,7 +93,7 @@ func _on_host() -> void:
 
 
 func _on_join() -> void:
-	var err := Net.join(_ip_edit.text.strip_edges(), _port(), _player_name())
+	var err := Net.join(_ip_edit.text.strip_edges(), _port(), _player_name(), _faction())
 	if err != OK:
 		_show_menu("Verbinden mislukt.")
 		return
@@ -101,7 +112,8 @@ func _refresh_lobby() -> void:
 		c.queue_free()
 	var by_slot := {}
 	for id in Net.players:
-		by_slot[int(Net.players[id]["slot"])] = Net.players[id]["name"]
+		var p: Dictionary = Net.players[id]
+		by_slot[int(p["slot"])] = "%s  (%s)" % [p["name"], GameData.faction_data(p.get("faction", ""))["name"]]
 	for s in GameData.MAX_PLAYERS:
 		var l := Label.new()
 		if by_slot.has(s):
@@ -112,6 +124,7 @@ func _refresh_lobby() -> void:
 			l.modulate = Color(1, 1, 1, 0.4)
 		_players_box.add_child(l)
 	_start_button.visible = multiplayer.is_server()
+	_lobby_faction.select(GameData.FACTION_ORDER.find(Net.local_faction))
 	if args.has("autostart") and multiplayer.is_server() and not Net.in_game:
 		if Net.players.size() >= int(args["autostart"]):
 			Net.start_game()
@@ -126,6 +139,10 @@ func _on_game_started() -> void:
 		var t := SmokeTest.new()
 		t.game = game
 		game.add_child(t)
+	if args.has("combat-test"):
+		var c := CombatTest.new()
+		c.game = game
+		game.add_child(c)
 
 
 func leave_game() -> void:
@@ -193,6 +210,7 @@ func _build_ui() -> void:
 	_name_edit = _field(_menu, "Naam", "Speler")
 	_ip_edit = _field(_menu, "IP van host", "127.0.0.1")
 	_port_edit = _field(_menu, "Poort", str(Net.DEFAULT_PORT))
+	_faction_pick = _faction_field(_menu)
 	_button(_menu, "Singleplayer", _on_single)
 	_button(_menu, "Hosten (multiplayer)", _on_host)
 	_button(_menu, "Meedoen", _on_join)
@@ -207,6 +225,8 @@ func _build_ui() -> void:
 	_lobby.add_child(_lobby_info)
 	_players_box = VBoxContainer.new()
 	_lobby.add_child(_players_box)
+	_lobby_faction = _faction_field(_lobby)
+	_lobby_faction.item_selected.connect(func(i): Net.set_faction(GameData.FACTION_ORDER[i]))
 	_start_button = _button(_lobby, "Start spel", func(): Net.start_game())
 	_button(_lobby, "Lobby verlaten", _on_leave_lobby)
 
@@ -228,6 +248,21 @@ func _field(parent: Control, label: String, value: String) -> LineEdit:
 	row.add_child(e)
 	parent.add_child(row)
 	return e
+
+
+func _faction_field(parent: Control) -> OptionButton:
+	var row := HBoxContainer.new()
+	var l := Label.new()
+	l.text = "Faction"
+	l.custom_minimum_size = Vector2(110, 0)
+	row.add_child(l)
+	var o := OptionButton.new()
+	for f in GameData.FACTION_ORDER:
+		o.add_item(GameData.FACTIONS[f]["name"])
+	o.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(o)
+	parent.add_child(row)
+	return o
 
 
 func _button(parent: Control, text: String, cb: Callable) -> Button:

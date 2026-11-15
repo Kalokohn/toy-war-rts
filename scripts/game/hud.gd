@@ -45,7 +45,7 @@ func _ready() -> void:
 	row.add_theme_constant_override("separation", 18)
 	top.add_child(row)
 	var me := Label.new()
-	me.text = "%s (%s)" % [Net.local_name, GameData.PLAYER_COLOR_NAMES[game.my_slot]]
+	me.text = "%s (%s, %s)" % [Net.local_name, GameData.faction_data(game.my_faction)["name"], GameData.PLAYER_COLOR_NAMES[game.my_slot]]
 	me.add_theme_color_override("font_color", GameData.player_color(game.my_slot).lightened(0.3))
 	row.add_child(me)
 	for res in GameData.RESOURCES:
@@ -57,7 +57,7 @@ func _ready() -> void:
 	row.add_child(_pop_label)
 	_idle_button = Button.new()
 	_idle_button.focus_mode = Control.FOCUS_NONE
-	_idle_button.tooltip_text = "Selecteer een werkeloos opwindsoldaatje (.)"
+	_idle_button.tooltip_text = "Selecteer een werkeloze worker (.)"
 	_idle_button.pressed.connect(func(): controller.select_idle_worker())
 	row.add_child(_idle_button)
 
@@ -125,7 +125,7 @@ func _process(delta: float) -> void:
 	_pop_label.text = "Pop: %d/%d" % [stock.get("pop", 0), stock.get("cap", 0)]
 	var idle := 0
 	for e in game.entities.values():
-		if e.kind == "unit" and e.owner_slot == game.my_slot and e.state == "idle" and e.type == "worker":
+		if e.kind == "unit" and e.owner_slot == game.my_slot and e.state == "idle" and GameData.UNITS[e.type].get("can_gather", false):
 			idle += 1
 	_idle_button.text = "Werkeloos: %d" % idle
 
@@ -198,7 +198,7 @@ func _rebuild_actions() -> void:
 	for c in _actions.get_children():
 		c.queue_free()
 	if controller.own_workers().size() > 0:
-		for item in GameData.BUILD_MENU:
+		for item in GameData.faction_data(game.my_faction)["build_menu"]:
 			var bd: Dictionary = GameData.BUILDINGS[item[0]]
 			var btype: String = item[0]
 			_add_button("%s (%s)\n%s" % [bd["name"], item[1], GameData.cost_text(bd["cost"])],
